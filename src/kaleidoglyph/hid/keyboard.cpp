@@ -295,6 +295,9 @@ bool Dispatcher::setup(USBSetup& setup) {
       }
 
       // Input (set HID report)
+      // I'm not sure what this is for. It appears to be the host sending a HID report to
+      // the keyboard, which doesn't make much sense to me. Can I just delete this final
+      // `if` block?
       else if (setup.wValueH == HID_REPORT_TYPE_INPUT) {
         if (length == sizeof(boot_report_)) {
           USB_RecvControl(&boot_report_, length);

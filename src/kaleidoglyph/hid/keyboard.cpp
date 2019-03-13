@@ -1,3 +1,5 @@
+// -*- c++ -*-
+
 /*
 Copyright (c) 2014-2015 NicoHood
 Copyright (c) 2015-2018 Keyboard.io, Inc
@@ -23,10 +25,81 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-#include "Keyboard.h"
-#include "DescriptorPrimitives.h"
+#include "kaleidoglyph/hid/keyboard.h"
 
-static const uint8_t _hidMultiReportDescriptorKeyboard[] PROGMEM = {
+#include <Arduino.h>
+
+#include "DescriptorPrimitives.h"
+#include "HID-Settings.h"
+#include "kaleidoglyph/cKey.h"
+
+namespace kaleidoglyph {
+namespace hid {
+namespace keyboard {
+
+void Report::clear() {
+  memset(&data_, 0, sizeof(data_));
+}
+
+// This method is of dubious value
+bool Report::readKeycode(byte keycode) {
+  byte n = keycode / 8;
+  byte i = keycode % 8;
+  if (keycode < HID_KEYBOARD_FIRST_MODIFIER) {
+    return bitRead(data_[1 + n], i);
+  } else if (keycode <= HID_KEYBOARD_LAST_MODIFIER) {
+    return bitRead(data_[0], i);
+  }
+  return false;
+}
+
+void Report::addKeycode(byte keycode) {
+  byte n = keycode / 8;
+  byte i = keycode % 8;
+  if (keycode < HID_KEYBOARD_FIRST_MODIFIER) {
+    bitSet(data_[1 + n], i);
+  } else if (keycode <= HID_KEYBOARD_LAST_MODIFIER) {
+    bitSet(data_[0], i);
+  }
+  for (byte i{0}; i < arraySize(data_); ++i) {
+    Serial.print(".");
+    if (data_[i] != 0) Serial.print(int(data_[i]));
+  }
+  Serial.println();
+}
+
+void Report::removeKeycode(byte keycode) {
+  byte n = keycode / 8;
+  byte i = keycode % 8;
+  if (keycode < HID_KEYBOARD_FIRST_MODIFIER) {
+    bitClear(data_[1 + n], i);
+  } else if (keycode <= HID_KEYBOARD_LAST_MODIFIER) {
+    bitClear(data_[0], i);
+  }
+}
+
+// Update the report to remove any keycodes that don't appear in `new_report`. If any such
+// keycodes are found, return `true`, otherwise return `false`. This efficiently deals
+// with the problem of a plain keycode release in the same update as a new modifier
+// press. We don't want to risk the modifier applying to the plain keycode before that
+// keycode is released.
+bool Report::updatePlainReleases_(const Report &new_report) {
+  bool result{false};
+  for (byte i{1}; i < arraySize(data_); ++i) {
+    byte released_keycodes = data_[i] & ~(new_report.data_[i]);
+    if (released_keycodes != 0) {
+      data_[i] &= ~released_keycodes;
+      result = true;
+    }
+  }
+  return result;
+}
+
+
+
+
+
+static constexpr PROGMEM byte nkro_descriptor[] = {
   //  NKRO Keyboard
   D_USAGE_PAGE, D_PAGE_GENERIC_DESKTOP,
   D_USAGE, D_USAGE_KEYBOARD,
@@ -78,183 +151,62 @@ static const uint8_t _hidMultiReportDescriptorKeyboard[] PROGMEM = {
 
 };
 
-Keyboard_::Keyboard_(void) {
-  static HIDSubDescriptor node(_hidMultiReportDescriptorKeyboard, sizeof(_hidMultiReportDescriptorKeyboard));
+Dispatcher::Dispatcher() {
+  static HIDSubDescriptor node(nkro_descriptor, sizeof(nkro_descriptor));
   HID().AppendDescriptor(&node);
 }
 
-void Keyboard_::begin(void) {
-  // Force API to send a clean report.
-  // This is important for and HID bridge where the receiver stays on,
-  // while the sender is resetted.
-  releaseAll();
-  sendReportUnchecked();
+void Dispatcher::init() {
+  last_report_.clear();
+  sendReportUnchecked_(last_report_);
 }
 
+// This is the primary function of the Dispatcher: to send new HID reports such that they
+// won't cause unintended output on the host.
+void Dispatcher::sendReport(const Report &new_report) {
 
-void Keyboard_::end(void) {
-  releaseAll();
-  sendReportUnchecked();
-}
+  // First, we determine if any modifiers have changed state
+  const byte new_modifiers = new_report.getModifiers();
+  const byte old_modifiers = last_report_.getModifiers();
 
-int Keyboard_::sendReportUnchecked(void) {
-    return HID().SendReport(HID_REPORTID_NKRO_KEYBOARD, &keyReport, sizeof(keyReport));
-}
-
-
-int Keyboard_::sendReport(void) {
-  // If the last report is different than the current report, then we need to send a report.
-  // We guard sendReport like this so that calling code doesn't end up spamming the host with empty reports
-  // if sendReport is called in a tight loop.
-
-  if (memcmp(lastKeyReport.allkeys, keyReport.allkeys, sizeof(keyReport))) {
-    // if the two reports are different, send a report
-
-  // ChromeOS 51-60 (at least) bug: if a modifier and a normal keycode are added in the
-  // same report, in some cases the shift is not applied (e.g. `shift`+`[` doesn't yield
-  // `{`). To compensate for this, check to see if the modifier byte has changed.
-
-
-  // If modifiers are being turned on at the same time as any change
-  // to the non-modifier keys in the report, then we send the previous
-  // report with the new modifiers
-  if ( ( (lastKeyReport.modifiers ^ keyReport.modifiers) & keyReport.modifiers)
-	&& (memcmp(lastKeyReport.keys,keyReport.keys, sizeof(keyReport.keys)))) {
-    uint8_t last_mods = lastKeyReport.modifiers;
-    lastKeyReport.modifiers = keyReport.modifiers;
-    int returnCode = HID().SendReport(HID_REPORTID_NKRO_KEYBOARD, &lastKeyReport, sizeof(lastKeyReport));
-    lastKeyReport.modifiers = last_mods;
+  // If any modifiers were released, we need to first send a report with any plain
+  // keycodes removed to prevent getting any unintended output when keys are held long
+  // enough to repeat. For example, if we have a `shift` + `C` key, holding it might
+  // sometimes produce: `CCCCCc`.
+  const byte released_modifiers = old_modifiers & ~new_modifiers;
+  if ((released_modifiers != 0) &&
+      last_report_.updatePlainReleases_(new_report)) {
+    sendReportUnchecked_(last_report_);
   }
 
-  // If modifiers are being turned off, then we send the new report with the previous modifiers.
-  // We need to do this, at least on Linux 4.17 + Wayland.
-  // Jesse has observed that sending Shift + 3 key up events in the same report
-  // will sometimes result in a spurious '3' rather than '#', especially when the keys
-  // had been held for a while
-  else if (( (lastKeyReport.modifiers ^ keyReport.modifiers) & lastKeyReport.modifiers)
-	&& (memcmp(lastKeyReport.keys,keyReport.keys, sizeof(keyReport.keys)))) {
-    uint8_t mods = keyReport.modifiers;
-    keyReport.modifiers = lastKeyReport.modifiers;
-    int returnCode = HID().SendReport(HID_REPORTID_NKRO_KEYBOARD, &keyReport, sizeof(lastKeyReport));
-    keyReport.modifiers = mods;
+  // Next, if any modifiers were added since the previous report, we need to send those
+  // first to ensure that the modifiers will be applied before any keycodes that were
+  // added in the same report. Also, if a modifier release comes at the same time as a new
+  // keycode press (Unshifter does this), we likewise need to send the modifier changes in
+  // a separate report first. In short, modifier changes must come after key _releases_,
+  // but before key _presses_.
+  const byte changed_modifiers  = old_modifiers ^ new_modifiers;
+  if (changed_modifiers != 0) {
+    last_report_.setModifiers(new_modifiers);
+    sendReportUnchecked_(last_report_);
   }
 
-
-
-
-
-    int returnCode = sendReportUnchecked();
-    if (returnCode > 0)
-      memcpy(lastKeyReport.allkeys, keyReport.allkeys, sizeof(keyReport));
-    return returnCode;
+  // Last, we send a report with any keycodes that were added in the new report, if
+  // any. We also update the stored previous report, if necessary.
+  if (new_report != last_report_) {
+    last_report_.updateFrom_(new_report);
+    sendReportUnchecked_(last_report_);
   }
-  return -1;
 }
 
-/* Returns true if the modifer key passed in will be sent during this key report
- * Returns false in all other cases
- * */
-boolean Keyboard_::isModifierActive(uint8_t k) {
-  if (k >= HID_KEYBOARD_FIRST_MODIFIER && k <= HID_KEYBOARD_LAST_MODIFIER) {
-    k = k - HID_KEYBOARD_FIRST_MODIFIER;
-    return !!(keyReport.modifiers & (1 << k));
-  }
-  return false;
+// I'm not at all convinced that it's worthwhile to check the return value, and
+// the report-sending functions become more efficient if we just return void
+// instead, but for the moment, pass it through.
+int Dispatcher::sendReportUnchecked_(const Report &report) {
+  return HID().SendReport(HID_REPORTID_NKRO_KEYBOARD,
+                          &report, sizeof(report));
 }
 
-/* Returns true if the modifer key passed in was being sent during the previous key report
- * Returns false in all other cases
- * */
-boolean Keyboard_::wasModifierActive(uint8_t k) {
-  if (k >= HID_KEYBOARD_FIRST_MODIFIER && k <= HID_KEYBOARD_LAST_MODIFIER) {
-    k = k - HID_KEYBOARD_FIRST_MODIFIER;
-    return !!(lastKeyReport.modifiers & (1 << k));
-  }
-  return false;
-}
-
-/* Returns true if *any* modifier will be sent during this key report
- * Returns false in all other cases
- * */
-boolean Keyboard_::isAnyModifierActive() {
-  return keyReport.modifiers > 0;
-}
-
-/* Returns true if *any* modifier was being sent during the previous key report
- * Returns false in all other cases
- * */
-boolean Keyboard_::wasAnyModifierActive() {
-  return lastKeyReport.modifiers > 0;
-}
-
-
-/* Returns true if the non-modifier key passed in will be sent during this key report
- * Returns false in all other cases
- * */
-boolean Keyboard_::isKeyPressed(uint8_t k) {
-    if (k <= HID_LAST_KEY) {
-        uint8_t bit = 1 << (uint8_t(k) % 8);
-        return !! (keyReport.keys[k / 8] & bit);
-    }
-    return false;
-}
-
-/* Returns true if the non-modifer key passed in was sent during the previous key report
- * Returns false in all other cases
- * */
-boolean Keyboard_::wasKeyPressed(uint8_t k) {
-
-    if (k <= HID_LAST_KEY) {
-        uint8_t bit = 1 << (uint8_t(k) % 8);
-        return !! (lastKeyReport.keys[k / 8] & bit);
-    }
-    return false;
-}
-
-
-size_t Keyboard_::press(uint8_t k) {
-  // If the key is in the range of 'printable' keys
-  if (k <= HID_LAST_KEY) {
-    uint8_t bit = 1 << (uint8_t(k) % 8);
-    keyReport.keys[k / 8] |= bit;
-    return 1;
-  }
-
-  // It's a modifier key
-  else if (k >= HID_KEYBOARD_FIRST_MODIFIER && k <= HID_KEYBOARD_LAST_MODIFIER) {
-    // Convert key into bitfield (0 - 7)
-    k = k - HID_KEYBOARD_FIRST_MODIFIER;
-    keyReport.modifiers |= (1 << k);
-    return 1;
-  }
-
-  // No empty/pressed key was found
-  return 0;
-}
-
-size_t Keyboard_::release(uint8_t k) {
-  // If we're releasing a printable key
-  if (k <= HID_LAST_KEY) {
-    uint8_t bit = 1 << (k % 8);
-    keyReport.keys[k / 8] &= ~bit;
-    return 1;
-  }
-
-  // It's a modifier key
-  else if (k >= HID_KEYBOARD_FIRST_MODIFIER && k <= HID_KEYBOARD_LAST_MODIFIER) {
-    // Convert key into bitfield (0 - 7)
-    k = k - HID_KEYBOARD_FIRST_MODIFIER;
-    keyReport.modifiers &= ~(1 << k);
-    return 1;
-  }
-
-  // No empty/pressed key was found
-  return 0;
-}
-
-void Keyboard_::releaseAll(void) {
-  // Release all keys
-  memset(&keyReport.allkeys, 0x00, sizeof(keyReport.allkeys));
-}
-
-Keyboard_ Keyboard;
+} // namespace keyboard {
+} // namespace hid {
+} // namespace kaleidoscope {

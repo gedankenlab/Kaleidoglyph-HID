@@ -1,6 +1,9 @@
+// -*- c++ -*-
+
 /*
 Copyright (c) 2014-2015 NicoHood
 Copyright (c) 2015-2018 Keyboard.io, Inc
+Copyright (c) 2019 Michael Richters
 
 See the readme for credit to other people.
 
@@ -23,53 +26,81 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-// Include guard
 #pragma once
 
 #include <Arduino.h>
-#include "PluggableUSB.h"
-#include "HID.h"
-#include "HID-Settings.h"
+#include <HID.h>
 
-#include "HIDTables.h"
+#include "kaleidoglyph/Key.h"
+#include "kaleidoglyph/utils.h"
 #include "HIDAliases.h"
 
-#define KEY_BYTES 28
+namespace kaleidoglyph {
+namespace hid {
+namespace keyboard {
 
-typedef union {
-  // Modifiers + keymap
-  struct {
-    uint8_t modifiers;
-    uint8_t keys[KEY_BYTES ];
-  };
-  uint8_t allkeys[1 + KEY_BYTES];
-} HID_KeyboardReport_Data_t;
+class Report {
 
+  friend class Dispatcher;
 
-
-class Keyboard_ {
  public:
-  Keyboard_(void);
-  void begin(void);
-  void end(void);
+  Report() {}
 
-  size_t press(uint8_t k);
-  size_t release(uint8_t k);
-  void  releaseAll(void);
-  int sendReport(void);
+  void clear();
 
-  boolean isKeyPressed(uint8_t k);
-  boolean wasKeyPressed(uint8_t k);
-  boolean isModifierActive(uint8_t k);
-  boolean wasModifierActive(uint8_t k);
-  boolean isAnyModifierActive();
-  boolean wasAnyModifierActive();
+  bool readKeycode(byte keycode) const;
+  void addKeycode(byte keycode);
+  void removeKeycode(byte keycode);
 
-  uint8_t getLEDs() { return HID().getLEDs(); };
+  byte getModifiers() const { return data_[0]; }
+  void setModifiers(byte modifiers) { data_[0] = modifiers; }
+  void addModifiers(byte modifiers) { data_[0] |= modifiers; }
+  void removeModifiers(byte modifiers) { data_[0] &= ~modifiers; }
 
-  HID_KeyboardReport_Data_t keyReport;
-  HID_KeyboardReport_Data_t lastKeyReport;
+  bool operator==(const Report& other) const {
+    return (memcmp(data_, other.data_, sizeof(data_)) == 0);
+  }
+  bool operator!=(const Report& other) const {
+    return !(*this == other);
+  }
+
  private:
-  int sendReportUnchecked(void);
+  static constexpr byte keycode_bytes = bitfieldSize(HID_KEYBOARD_FIRST_MODIFIER);
+
+  // It's important to make this a single array, rather than a struct with a separate
+  // modifiers byte and keycodes array, because we're going to send this report data
+  // directly to the HID().sendReport() function, and this is the only way to guarantee
+  // that there won't be any padding bytes between the two members.
+  byte data_[1 + keycode_bytes] = {};
+
+  bool updatePlainReleases_(const Report& new_report);
+
+  void updateFrom_(const Report& other) {
+    memcpy(data_, other.data_, sizeof(data_));
+  }
+
 };
-extern Keyboard_ Keyboard;
+
+class Dispatcher {
+
+ public:
+  Dispatcher();
+  void init();
+  byte getLedState() const {
+    return HID().getLEDs();
+  }
+  byte lastModifierState() const {
+    return last_report_.getModifiers();
+  }
+  void sendReport(const Report &report);
+
+ private:
+  Report last_report_;
+
+  int sendReportUnchecked_(const Report &report);
+
+};
+
+} // namespace keyboard {
+} // namespace hid {
+} // namespace kaleidoscope {

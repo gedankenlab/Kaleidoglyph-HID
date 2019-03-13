@@ -26,29 +26,10 @@ THE SOFTWARE.
 // Include guard
 #pragma once
 
-// Software version
-#define HID_PROJECT_VERSION 241
-
-#if ARDUINO < 10607
+#if (ARDUINO < 10607)
 #error HID Project requires Arduino IDE 1.6.7 or greater. Please update your IDE.
 #endif
 
 #if !defined(USBCON)
 #error HID Project can only be used with an USB MCU.
 #endif
-
-
-#include "LEDs.h"
-
-
-// Include all HID libraries (.a linkage required to work) properly
-#include "MultiReport/AbsoluteMouse.h"
-#include "MultiReport/Mouse.h"
-#include "MultiReport/ConsumerControl.h"
-#include "MultiReport/Gamepad.h"
-#include "MultiReport/SystemControl.h"
-#include "MultiReport/Keyboard.h"
-
-#include "SingleReport/SingleAbsoluteMouse.h"
-
-#include "BootKeyboard/BootKeyboard.h"

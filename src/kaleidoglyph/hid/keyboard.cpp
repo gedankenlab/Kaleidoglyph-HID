@@ -42,7 +42,7 @@ void Report::clear() {
 }
 
 // This method is of dubious value
-bool Report::readKeycode(byte keycode) {
+bool Report::readKeycode(byte keycode) const {
   byte n = keycode / 8;
   byte i = keycode % 8;
   if (keycode < HID_KEYBOARD_FIRST_MODIFIER) {

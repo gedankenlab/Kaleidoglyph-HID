@@ -29,6 +29,7 @@ THE SOFTWARE.
 #pragma once
 
 #include <Arduino.h>
+#include <PluggableUSB.h>
 #include <HID.h>
 
 #include "kaleidoglyph/Key.h"
@@ -78,10 +79,11 @@ class Report {
   void updateFrom_(const Report& other) {
     memcpy(data_, other.data_, sizeof(data_));
   }
+  void translateToBootProtocol_(byte (&boot_report)[8]) const;
 
 };
 
-class Dispatcher {
+class Dispatcher : PluggableUSBModule {
 
  public:
   Dispatcher();
@@ -94,10 +96,34 @@ class Dispatcher {
   }
   void sendReport(const Report &report);
 
+  // should be enum class
+  static constexpr byte boot_mode = HID_BOOT_PROTOCOL;
+  static constexpr byte nkro_mode = HID_REPORT_PROTOCOL;
+
+  bool getProtocol() const {
+    return hid_protocol_;
+  }
+  void setProtocol(bool mode) {
+    hid_protocol_ = mode;
+  }
+
  private:
   Report last_report_;
 
+  byte hid_protocol_{nkro_mode};
+  byte boot_report_[8];
+
   int sendReportUnchecked_(const Report &report);
+
+ protected:
+  // PluggableUSBModule
+  int getInterface(byte* interface_count);
+  int getDescriptor(USBSetup& setup);
+  bool setup(USBSetup& setup);
+
+  byte epType[1] = {EP_TYPE_INTERRUPT_IN};
+  byte idle{1};
+  byte leds{0};
 
 };
 

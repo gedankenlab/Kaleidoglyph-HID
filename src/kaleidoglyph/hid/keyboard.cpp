@@ -3,6 +3,7 @@
 /*
 Copyright (c) 2014-2015 NicoHood
 Copyright (c) 2015-2018 Keyboard.io, Inc
+Copyright (c) 2019 Michael Richters
 
 See the readme for credit to other people.
 
@@ -151,9 +152,159 @@ static constexpr PROGMEM byte nkro_descriptor[] = {
 
 };
 
-Dispatcher::Dispatcher() {
+// See Appendix B of USB HID spec
+static constexpr PROGMEM byte boot_descriptor[] = {
+  //  Keyboard
+  D_USAGE_PAGE, D_PAGE_GENERIC_DESKTOP,
+  D_USAGE, D_USAGE_KEYBOARD,
+
+  D_COLLECTION, D_APPLICATION,
+  // Modifiers
+  D_USAGE_PAGE, D_PAGE_KEYBOARD,
+  D_USAGE_MINIMUM, 0xe0,
+  D_USAGE_MAXIMUM, 0xe7,
+  D_LOGICAL_MINIMUM, 0x0,
+  D_LOGICAL_MAXIMUM, 0x1,
+  D_REPORT_SIZE, 0x1,
+  D_REPORT_COUNT, 0x8,
+  D_INPUT, (D_DATA|D_VARIABLE|D_ABSOLUTE),
+
+  // Reserved byte
+  D_REPORT_COUNT, 0x1,
+  D_REPORT_SIZE, 0x8,
+  D_INPUT, (D_CONSTANT),
+
+  // LEDs
+  D_REPORT_COUNT, 0x5,
+  D_REPORT_SIZE, 0x1,
+  D_USAGE_PAGE, D_PAGE_LEDS,
+  D_USAGE_MINIMUM, 0x1,
+  D_USAGE_MAXIMUM, 0x5,
+  D_OUTPUT, (D_DATA|D_VARIABLE|D_ABSOLUTE),
+  // Pad LEDs up to a byte
+  D_REPORT_COUNT, 0x1,
+  D_REPORT_SIZE, 0x3,
+  D_OUTPUT, (D_CONSTANT),
+
+  // Non-modifiers
+  D_REPORT_COUNT, 0x6,
+  D_REPORT_SIZE, 0x8,
+  D_LOGICAL_MINIMUM, 0x0,
+  D_LOGICAL_MAXIMUM, 0xff,
+  D_USAGE_PAGE, D_PAGE_KEYBOARD,
+  D_USAGE_MINIMUM, 0x0,
+  D_USAGE_MAXIMUM, 0xff,
+  D_INPUT, (D_DATA|D_ARRAY|D_ABSOLUTE),
+  D_END_COLLECTION
+};
+
+Dispatcher::Dispatcher() : PluggableUSBModule(1, 1, epType) {
   static HIDSubDescriptor node(nkro_descriptor, sizeof(nkro_descriptor));
   HID().AppendDescriptor(&node);
+}
+
+// PluggableUSBModule method
+int Dispatcher::getInterface(byte* interface_count) {
+  *interface_count += 1; // uses 1
+  HIDDescriptor hid_interface = {
+    D_INTERFACE(pluggedInterface, 1,
+                USB_DEVICE_CLASS_HUMAN_INTERFACE,
+                HID_SUBCLASS_BOOT_INTERFACE,
+                HID_PROTOCOL_KEYBOARD),
+    D_HIDREPORT(sizeof(boot_descriptor)),
+    D_ENDPOINT(USB_ENDPOINT_IN(pluggedEndpoint),
+               USB_ENDPOINT_TYPE_INTERRUPT, USB_EP_SIZE, 0x01)
+  };
+  return USB_SendControl(0, &hid_interface, sizeof(hid_interface));
+}
+
+// PluggableUSBModule method
+int Dispatcher::getDescriptor(USBSetup& setup) {
+  // Check if this is a HID Class Descriptor request
+  if (setup.bmRequestType != REQUEST_DEVICETOHOST_STANDARD_INTERFACE) {
+    return 0;
+  }
+  if (setup.wValueH != HID_REPORT_DESCRIPTOR_TYPE) {
+    return 0;
+  }
+
+  // In a HID Class Descriptor wIndex cointains the interface number
+  if (setup.wIndex != pluggedInterface) {
+    return 0;
+  }
+
+  // Reset the protocol on reenumeration. Normally the host should not assume the state of
+  // the protocol due to the USB specs, but Windows and Linux just assumes its in report
+  // mode.
+  hid_protocol_ = nkro_mode;
+
+  return USB_SendControl(TRANSFER_PGM, boot_descriptor, sizeof(boot_descriptor));
+}
+
+// PluggableUSBModule method
+bool Dispatcher::setup(USBSetup& setup) {
+  if (pluggedInterface != setup.wIndex) {
+    return false;
+  }
+
+  byte request = setup.bRequest;
+  byte request_type = setup.bmRequestType;
+
+  if (request_type == REQUEST_DEVICETOHOST_CLASS_INTERFACE) {
+    if (request == HID_GET_REPORT) {
+      // TODO: HID_GetReport();
+      return true;
+    }
+    if (request == HID_GET_PROTOCOL) {
+      // TODO improve
+      UEDATX = hid_protocol_;
+      return true;
+    }
+    if (request == HID_GET_IDLE) {
+      // TODO improve
+      UEDATX = idle;
+      return true;
+    }
+  }
+
+  if (request_type == REQUEST_HOSTTODEVICE_CLASS_INTERFACE) {
+    if (request == HID_SET_PROTOCOL) {
+      hid_protocol_ = setup.wValueL;
+      return true;
+    }
+    if (request == HID_SET_IDLE) {
+      // We currently ignore SET_IDLE, because we don't really do anything with it, and implementing
+      // it causes issues on OSX, such as key chatter. Other operating systems do not suffer if we
+      // force this to zero, either.
+#if 0
+      idle = setup.wValueL;
+#else
+      idle = 0;
+#endif
+      return true;
+    }
+    if (request == HID_SET_REPORT) {
+      // Check if data has the correct length afterwards
+      int length = setup.wLength;
+
+      if (setup.wValueH == HID_REPORT_TYPE_OUTPUT) {
+        if (length == sizeof(leds)) {
+          USB_RecvControl(&leds, length);
+          return true;
+        }
+      }
+
+      // Input (set HID report)
+      else if (setup.wValueH == HID_REPORT_TYPE_INPUT) {
+        if (length == sizeof(boot_report_)) {
+          USB_RecvControl(&boot_report_, length);
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 void Dispatcher::init() {
@@ -203,8 +354,32 @@ void Dispatcher::sendReport(const Report &new_report) {
 // the report-sending functions become more efficient if we just return void
 // instead, but for the moment, pass it through.
 int Dispatcher::sendReportUnchecked_(const Report &report) {
+  if (hid_protocol_ == boot_mode) {
+    report.translateToBootProtocol_(boot_report_);
+    return USB_Send(pluggedEndpoint | TRANSFER_RELEASE,
+                    &boot_report_, sizeof(boot_report_));
+  }
   return HID().SendReport(HID_REPORTID_NKRO_KEYBOARD,
                           &report, sizeof(report));
+}
+
+void Report::translateToBootProtocol_(byte (&boot_report)[8]) const {
+  // modifiers
+  memset(boot_report, 0, sizeof(boot_report));
+  byte boot_report_index{2};
+
+  boot_report[0] = getModifiers();
+  for (byte i{0}; i < arraySize(data_); ++i) {
+    if (data_[i] == 0) continue;
+    for (byte n{0}; n < 8; ++n) {
+      if (bitRead(data_[i], n)) {
+        byte keycode = ((i - 1) * 8) + n;
+        boot_report[boot_report_index++] = keycode;
+        if (boot_report_index == sizeof(boot_report))
+          return;
+      }
+    }
+  }
 }
 
 } // namespace keyboard {

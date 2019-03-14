@@ -62,11 +62,6 @@ void Report::addKeycode(byte keycode) {
   } else if (keycode <= HID_KEYBOARD_LAST_MODIFIER) {
     bitSet(data_[0], i);
   }
-  for (byte i{0}; i < arraySize(data_); ++i) {
-    Serial.print(".");
-    if (data_[i] != 0) Serial.print(int(data_[i]));
-  }
-  Serial.println();
 }
 
 void Report::removeKeycode(byte keycode) {

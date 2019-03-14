@@ -372,7 +372,7 @@ void Report::translateToBootProtocol_(byte (&boot_report)[8]) const {
   byte boot_report_index{2};
 
   boot_report[0] = getModifiers();
-  for (byte i{0}; i < arraySize(data_); ++i) {
+  for (byte i{1}; i < arraySize(data_); ++i) {
     if (data_[i] == 0) continue;
     for (byte n{0}; n < 8; ++n) {
       if (bitRead(data_[i], n)) {

@@ -311,6 +311,7 @@ bool Dispatcher::setup(USBSetup& setup) {
 }
 
 void Dispatcher::init() {
+  PluggableUSB().plug(this);
   last_report_.clear();
   sendReportUnchecked_(last_report_);
 }

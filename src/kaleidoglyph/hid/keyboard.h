@@ -103,13 +103,17 @@ class Dispatcher : PluggableUSBModule {
   bool getProtocol() const {
     return hid_protocol_;
   }
-  void setProtocol(bool mode) {
+  void setProtocol(byte mode) {
     hid_protocol_ = mode;
+  }
+  void toggleProtocol() {
+    boot_protocol_ = !boot_protocol_;
   }
 
  private:
   Report last_report_;
 
+  bool boot_protocol_{false};
   byte hid_protocol_{nkro_mode};
   byte boot_report_[8];
 

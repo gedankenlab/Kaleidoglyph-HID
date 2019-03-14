@@ -353,11 +353,23 @@ void Dispatcher::sendReport(const Report &new_report) {
 // the report-sending functions become more efficient if we just return void
 // instead, but for the moment, pass it through.
 int Dispatcher::sendReportUnchecked_(const Report &report) {
-  if (hid_protocol_ == boot_mode) {
+  if (boot_protocol_) {
     report.translateToBootProtocol_(boot_report_);
+    Serial.print(F("boot report:"));
+    for (byte i{0}; i < arraySize(boot_report_); ++i) {
+      Serial.print(F(" "));
+      Serial.print(boot_report_[i], HEX);
+    }
+    Serial.println();
     return USB_Send(pluggedEndpoint | TRANSFER_RELEASE,
                     &boot_report_, sizeof(boot_report_));
   }
+  Serial.print(F("nkro report:"));
+  for (byte i{0}; i < arraySize(report.data_); ++i) {
+    Serial.print(F(" "));
+    Serial.print(report.data_[i], HEX);
+  }
+  Serial.println();
   return HID().SendReport(HID_REPORTID_NKRO_KEYBOARD,
                           &report, sizeof(report));
 }

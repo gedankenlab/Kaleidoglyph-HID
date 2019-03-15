@@ -61,7 +61,7 @@ class Dispatcher {
  public:
   Dispatcher();
   void init();
-  void sendReportUnchecked_();
+  void sendReportUnchecked_(const Report& report);
   void sendReport(const Report& report);
 
  private:

@@ -50,7 +50,7 @@ static const PROGMEM byte consumer_control_descriptor[] = {
   D_END_COLLECTION                             // end collection 
 };
 
-Report::clear() {
+void Report::clear() {
   memset(keycodes_, 0, sizeof(keycodes_));
 }
 
@@ -66,7 +66,7 @@ void Report::addKeycode(uint16_t keycode) {
 void Report::releaseKeycode(uint16_t keycode) {
   for (byte i{0}; i < arraySize(keycodes_); ++i) {
     if (keycodes_[i] == keycode) {
-      keycodes_[i] == 0;
+      keycodes_[i] = 0;
     }
   }
 }
@@ -90,9 +90,9 @@ void Dispatcher::init() {
   sendReport(last_report_);
 }
 
-void Dispatcher::sendReportUnchecked_() {
+void Dispatcher::sendReportUnchecked_(const Report& report) {
   HID().SendReport(HID_REPORTID_CONSUMERCONTROL,
-                   last_report_.keycodes_, sizeof(last_report_.keycodes_));
+                   report.keycodes_, sizeof(report.keycodes_));
 }
 
 void Dispatcher::sendReport(const Report& report) {

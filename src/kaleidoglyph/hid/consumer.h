@@ -1,6 +1,9 @@
+// -*- mode: c++ -*-
+
 /*
 Copyright (c) 2014-2015 NicoHood
 Copyright (c) 2015-2018 Keyboard.io, Inc
+Copyright (c) 2019 Michael Richters
 
 See the readme for credit to other people.
 
@@ -23,44 +26,49 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-// Include guard
 #pragma once
 
 #include <Arduino.h>
-#include "PluggableUSB.h"
-#include "HID.h"
+#include <PluggableUSB.h>
+#include <HID.h>
 #include "HID-Settings.h"
 
-typedef union {
-  // Every usable Consumer key possible, up to 4 keys presses possible
-  uint16_t keys[4];
-  struct {
-    uint16_t key1;
-    uint16_t key2;
-    uint16_t key3;
-    uint16_t key4;
-  };
-} HID_ConsumerControlReport_Data_t;
+#include <kaleidoglyph/Key.h>
+#include <kaleidoglyph/utils.h>
 
+namespace kaleidoglyph {
+namespace hid {
+namespace consumer {
 
-class ConsumerControl_ {
+class Report {
+
+  friend class Dispatcher;
+
  public:
-  ConsumerControl_(void);
-  void begin(void);
-  void end(void);
-  void write(uint16_t m);
-  void press(uint16_t m);
-  void release(uint16_t m);
-  void releaseAll(void);
-
-  // Sending is public in the base class for advanced users.
-  void sendReport(void);
-
- protected:
-  HID_ConsumerControlReport_Data_t _report;
-  HID_ConsumerControlReport_Data_t _lastReport;
+  void clear();
+  void addKeycode(uint16_t keycode);
+  void releaseKeycode(uint16_t keycode);
+  bool operator==(const Report& other) const;
+  void updateFrom(const Report& new_report);
 
  private:
-  void sendReportUnchecked(void);
+  uint16_t keycodes_[4];
+
 };
-extern ConsumerControl_ ConsumerControl;
+
+class Dispatcher {
+
+ public:
+  Dispatcher();
+  void init();
+  void sendReportUnchecked_();
+  void sendReport(const Report& report);
+
+ private:
+  Report last_report_;
+
+};
+
+} //
+} //
+} //

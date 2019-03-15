@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 #include "kaleidoglyph/hid/consumer.h"
 
+#include <kaleidoglyph/utils.h>
 #include "DescriptorPrimitives.h"
 
 namespace kaleidoglyph {

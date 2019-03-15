@@ -349,6 +349,11 @@ void Dispatcher::sendReport(const Report &new_report) {
   }
 }
 
+void Dispatcher::sendBreakReport(byte keycode) {
+  last_report_.removeKeycode(keycode);
+  sendReportUnchecked_(last_report_);
+}
+
 // I'm not at all convinced that it's worthwhile to check the return value, and
 // the report-sending functions become more efficient if we just return void
 // instead, but for the moment, pass it through.

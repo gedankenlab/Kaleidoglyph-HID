@@ -95,6 +95,7 @@ class Dispatcher : PluggableUSBModule {
     return last_report_.getModifiers();
   }
   void sendReport(const Report &report);
+  void sendBreakReport(byte keycode);
 
   // should be enum class
   static constexpr byte boot_mode = HID_BOOT_PROTOCOL;

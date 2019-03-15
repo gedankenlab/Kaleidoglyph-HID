@@ -1,6 +1,9 @@
+// -*- mode: c++ -*-
+
 /*
 Copyright (c) 2014-2015 NicoHood
 Copyright (c) 2015-2018 Keyboard.io, Inc
+Copyright (c) 2019 Michael Richters
 
 See the readme for credit to other people.
 
@@ -23,36 +26,29 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-// Include guard
 #pragma once
 
 #include <Arduino.h>
-#include "PluggableUSB.h"
-#include "HID.h"
+#include <PluggableUSB.h>
+#include <HID.h>
 #include "HID-Settings.h"
-#include "HIDTables.h"
 
-typedef union {
-  // Every usable system control key possible
-  uint8_t key;
-} HID_SystemControlReport_Data_t;
+#include <kaleidoglyph/Key.h>
+#include <kaleidoglyph/utils.h>
 
+namespace kaleidoglyph {
+namespace hid {
+namespace system {
 
-class SystemControl_ {
+class Dispatcher {
+
  public:
-  void begin(void);
-  void end(void);
-  void write(uint8_t s);
-  void press(uint8_t s);
-  void release(void);
-  void releaseAll(void);
-  void sendReport(void* data, int length);
+  Dispatcher();
+  void init();
+  void sendReport(byte keycode);
 
-  SystemControl_(void);
-
- protected:
 };
 
-
-
-extern SystemControl_ SystemControl;
+} //
+} //
+} //

@@ -52,7 +52,7 @@ class Report {
   void updateFrom(const Report& new_report);
 
  private:
-  uint16_t keycodes_[4];
+  uint16_t keycodes_[4] = {};
 
 };
 

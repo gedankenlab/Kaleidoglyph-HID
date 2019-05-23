@@ -41,6 +41,14 @@ namespace kaleidoglyph {
 namespace hid {
 namespace mouse {
 
+enum class Button : byte {
+  left,
+  right,
+  middle,
+  prev,
+  next,
+};
+
 class Report {
   friend class Dispatcher;
 
@@ -65,7 +73,51 @@ class Dispatcher {
   Dispatcher();
   void init();
   void sendReport(Report const & report);
+
+ private:
+  // If the buttons haven't changed state, and the movement and scroll
+  // parameters are zeros, don't send a report.
+  byte prev_buttons_{0};
 };
+
+
+namespace absolute {
+
+class Report {
+  friend class Dispatcher;
+
+ public:
+  void pressButtons(byte buttons);
+  void moveCursorTo(uint16_t x, uint16_t y);
+
+ private:
+  byte buttons_{0};
+  uint16_t x_;
+  uint16_t y_;
+  int8_t wheel_{0};
+} __attribute__((packed));
+
+
+class Dispatcher : PluggableUSBModule {
+ public:
+  Dispatcher();
+  void init();
+  void sendReport(Report const &report);
+
+ private:
+  // variables
+
+ protected:
+  // PluggableUSBModule
+  int getInterface(byte* interface_count);
+  int getDescriptor(USBSetup& setup);
+  bool setup(USBSetup& setup);
+
+  byte epType[1] = {EP_TYPE_INTERRUPT_IN};
+  byte idle{1};
+};
+
+}
 
 } //
 } //
